@@ -1,0 +1,149 @@
+import os
+import json
+import shutil
+import xml.etree.ElementTree as ET
+from sklearn.model_selection import train_test_split
+
+# 定义要转换的目录路径
+annotations_dir = r'F:\HuoChe\yolov5_model\JiuD\1\328-1000/annotations'  # 替换为存放 XML 文件的目录路径
+images_dir = r'F:\HuoChe\yolov5_model\JiuD\1\328-1000/images'  # 替换为存放图像文件的目录路径
+output_dir = r'F:\HuoChe\yolov5_model\JiuD\1\328-1000\json'  # 输出 JSON 文件的目录路径
+
+# 数据集划分比例
+train_ratio = 0.8  # 80% 用于训练，20% 用于验证
+
+
+def xml_to_coco(annotations_dir, images_dir, output_dir, train_ratio):
+    data = {
+        'images': [],
+        'annotations': [],
+        'categories': []
+    }
+
+    category_set = set()
+    annotation_id = 1
+
+    # 遍历所有 XML 文件，收集图像和标注信息
+    image_info_list = []
+    for filename in os.listdir(annotations_dir):
+        if not filename.endswith('.xml'):
+            continue
+
+        xml_path = os.path.join(annotations_dir, filename)
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+
+        image_id = len(image_info_list) + 1
+        image_filename = root.find('filename').text
+        image_path = os.path.join(images_dir, image_filename)
+
+        # 获取图像大小
+        size = root.find('size')
+        width = int(size.find('width').text)
+        height = int(size.find('height').text)
+
+        image_info = {
+            'id': image_id,
+            'file_name': image_filename,
+            'width': width,
+            'height': height,
+            'annotations': []
+        }
+
+        # 获取标注对象
+        for obj in root.findall('object'):
+            category = obj.find('name').text
+            category_set.add(category)
+
+            bndbox = obj.find('bndbox')
+            xmin = float(bndbox.find('xmin').text)
+            ymin = float(bndbox.find('ymin').text)
+            xmax = float(bndbox.find('xmax').text)
+            ymax = float(bndbox.find('ymax').text)
+
+            bbox = [xmin, ymin, xmax - xmin, ymax - ymin]
+            area = (xmax - xmin) * (ymax - ymin)
+
+            annotation = {
+                'id': annotation_id,
+                'image_id': image_id,
+                'category_id': category,
+                'bbox': bbox,
+                'area': area,
+                'iscrowd': 0
+            }
+            image_info['annotations'].append(annotation)
+            annotation_id += 1
+
+        image_info_list.append(image_info)
+
+    # 创建类别字典
+    category_id = 1
+    category_mapping = {}
+    for category in sorted(category_set):
+        data['categories'].append({
+            'id': category_id,
+            'name': category
+        })
+        category_mapping[category] = category_id
+        category_id += 1
+
+    # 更新 annotations 中的 category_id
+    for image_info in image_info_list:
+        for annotation in image_info['annotations']:
+            annotation['category_id'] = category_mapping[annotation['category_id']]
+
+    # 划分训练集和验证集
+    train_images, val_images = train_test_split(image_info_list, train_size=train_ratio, random_state=42)
+
+    # 准备训练集和验证集的 COCO 数据
+    train_data = {
+        'images': [],
+        'annotations': [],
+        'categories': data['categories']
+    }
+    val_data = {
+        'images': [],
+        'annotations': [],
+        'categories': data['categories']
+    }
+
+    # 创建输出目录
+    annotations_dir = os.path.join(output_dir, 'annotations')
+    train_images_dir = os.path.join(output_dir, 'train_images')
+    val_images_dir = os.path.join(output_dir, 'val_images')
+    os.makedirs(annotations_dir, exist_ok=True)
+    os.makedirs(train_images_dir, exist_ok=True)
+    os.makedirs(val_images_dir, exist_ok=True)
+
+    for image_info in train_images:
+        train_data['images'].append({
+            'id': image_info['id'],
+            'file_name': image_info['file_name'],
+            'width': image_info['width'],
+            'height': image_info['height']
+        })
+        train_data['annotations'].extend(image_info['annotations'])
+        # 移动图像文件到训练集文件夹
+        shutil.copy(os.path.join(images_dir, image_info['file_name']), train_images_dir)
+
+    for image_info in val_images:
+        val_data['images'].append({
+            'id': image_info['id'],
+            'file_name': image_info['file_name'],
+            'width': image_info['width'],
+            'height': image_info['height']
+        })
+        val_data['annotations'].extend(image_info['annotations'])
+        # 移动图像文件到验证集文件夹
+        shutil.copy(os.path.join(images_dir, image_info['file_name']), val_images_dir)
+
+    # 写入 JSON 文件
+    with open(os.path.join(annotations_dir, 'train_annotations.json'), 'w') as f:
+        json.dump(train_data, f, indent=4)
+    with open(os.path.join(annotations_dir, 'val_annotations.json'), 'w') as f:
+        json.dump(val_data, f, indent=4)
+
+
+# 调用函数
+xml_to_coco(annotations_dir, images_dir, output_dir, train_ratio)
