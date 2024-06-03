@@ -1,0 +1,39 @@
+import os
+import pandas as pd
+from collections import defaultdict
+
+# 定义要统计的模型前缀
+model_prefix = "engine_"
+
+# 初始化一个列表用于存储每个文件中的模型统计信息
+data = []
+
+# 遍历目录中的所有txt文件
+directory = r"H:\广州\汇总报表\5月\5月30日汇总报表\2024-05-30 201437"  # 替换为实际路径
+for filename in os.listdir(directory):
+    if filename.endswith(".txt"):
+        filepath = os.path.join(directory, filename)
+        with open(filepath, 'r', encoding='utf-8') as file:
+            # 初始化当前文件的计数器
+            model_counter = defaultdict(int)
+            for line in file:
+                if model_prefix in line:
+                    # 提取模型名称
+                    model_name = line.split()[1]
+                    if model_name.startswith(model_prefix):
+                        model_counter[model_name] += 1
+
+            # 将当前文件的统计信息添加到数据列表中
+            for model_name, count in model_counter.items():
+                data.append({"文件名": filename, "模型名称": model_name, "出现次数": count})
+
+# 将统计结果转换为DataFrame
+df = pd.DataFrame(data)
+
+# 输出表格
+print(df)
+
+# 保存结果到CSV文件
+output_file = os.path.join(directory, "1.csv")
+df.to_csv(output_file, index=False, encoding='utf-8')
+print(f"统计结果已保存到 {output_file}")
