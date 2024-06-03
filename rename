@@ -1,0 +1,40 @@
+import os
+
+
+def rename_files_in_second_level_folders(parent_folder_path):
+    # 获取第一层文件夹内的所有文件夹名称
+    first_level_folders = [folder for folder in os.listdir(parent_folder_path) if
+                           os.path.isdir(os.path.join(parent_folder_path, folder))]
+
+    # 遍历第一层文件夹内的每个文件夹
+    for folder_name in first_level_folders:
+        folder_path = os.path.join(parent_folder_path, folder_name)
+
+        # 将第一层文件夹名称设为变量A
+        A = folder_name
+
+        # 遍历第二层文件夹内的所有文件
+        for root, dirs, files in os.walk(folder_path):
+            for dir_name in dirs:
+                # 分割文件夹名称
+                split_names = dir_name.split('-')
+                if len(split_names) >= 1:
+                    # 获取X
+                    x = split_names[0]
+
+                    # 重命名文件夹
+                    new_dir_name = dir_name
+                    os.rename(os.path.join(root, dir_name), os.path.join(root, new_dir_name))
+
+                    # 重命名文件
+                    for file_name in os.listdir(os.path.join(root, new_dir_name)):
+                        new_file_name = x + '_' + A + '_' + file_name
+                        # new_file_name = x + '_' + file_name
+                        os.rename(os.path.join(root, new_dir_name, file_name), os.path.join(root, new_dir_name, new_file_name))
+
+
+# 指定要遍历的第一层文件夹路径
+parent_folder_path = r'H:\TFDS故障库\2024武汉故障库\2'  # 替换为您的第一层目录路径
+
+# 调用函数开始遍历并重命名文件
+rename_files_in_second_level_folders(parent_folder_path)
