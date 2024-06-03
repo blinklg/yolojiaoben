@@ -1,0 +1,36 @@
+architecture: FasterRCNN
+
+_BASE_: [
+  'faster_rcnn_r50_fpn_1x_coco.yml',
+]
+
+pretrain_weights: ResNet50_vd_pretrained.pdparams
+weights: output/faster_rcnn_r50_vd_fpn_1x_coco/model_final
+
+ResNet:
+  depth: 50
+  variant: d
+  norm_type: bn
+  freeze_at: 0
+  return_idx: [0,1,2,3]
+  num_stages: 4
+
+TrainDataset:
+  !COCODataSet
+    image_dir: train_images
+    anno_path: annotations/train_annotations.json
+    dataset_dir: F:/HuoChe/yolov5_model/JiuD/1/328-1000/json
+    data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
+
+EvalDataset:
+  !COCODataSet
+    image_dir: val_images
+    anno_path: annotations/val_annotations.json
+    dataset_dir: F:/HuoChe/yolov5_model/JiuD/1/328-1000/json
+    data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
+
+snapshot_epoch: 1
+batch_size_per_im: 2
+learning_rate: 0.0025
+num_classes: 1
+
