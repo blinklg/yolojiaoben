@@ -1,0 +1,58 @@
+from ultralytics import YOLO
+from ultralytics.engine.results import Results
+# import os
+#
+#
+# def get_folder_names(directory):
+#     folder_names = []
+#
+#     for root, dirs, files in os.walk(directory):
+#         for folder in dirs:
+#             folder_names.append(folder)
+#
+#     return folder_names
+#
+#
+# # 指定目录路径
+# target_directory = r"G:\richang\0816\42"
+#
+# # 获取文件夹名字列表
+# folders = get_folder_names(target_directory)
+#
+# # 打印文件夹名字列表
+# for folder in folders:
+
+# weight_file =r'E:\WXJ\yolov8\ultralytics-main\yolov8s.pt' #预测权重
+# data = r'E:\WXJ\yolov8\ultralytics-main\my_yaml\hc5_230818.yaml' #需要预测的数据地址
+# save_dir = r'E:\WXJ\yolov8\ultralytics-main\run\train' #预测结果保存地址
+# name = 'hc5_v8_230818' #结果保存文件名
+#
+# model = YOLO(weight_file) #权重
+# results = model.train(
+#     model='yolov8s.yaml',
+#     data=data,
+#     epochs=200,
+#     batch=8,
+#     imgsz=1280,
+#     device=0,
+#     workers=1,
+#     save=True,
+#     project=save_dir,
+#     name=name,
+# )
+from ultralytics import YOLO
+
+# 加载模型
+# model = YOLO('cfg/datasets/coco128.yaml')  # 从yaml文件加载
+# model = YOLO(r'E:\WXJ\yolov8\ultralytics-main\run\train\zjb_cj_v8_231116\weights\zjb_cj_v8_231116.pt')  # 加载预训练模型 (推荐)
+model = YOLO('yolov8s.pt')  # 从 YAML加载 然后再加载权重
+
+# 指定训练参数开始训练
+model.train(data=r'F:\ultralytics-main\wwx.yaml',
+            epochs=1000,
+            imgsz=640,
+            batch=12,
+            device=0,
+            name='172step1_0422',
+            verbose=True,
+            )
