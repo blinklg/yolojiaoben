@@ -1,0 +1,42 @@
+import os
+
+from openpyxl import Workbook
+
+
+def count_images_in_folder(folder_path):
+    # 获取文件夹中的所有文件
+    files = os.listdir(folder_path)
+
+    # 过滤出图片文件（假设你关心的是常见的图像格式，可以根据实际情况调整）
+    image_files = [file for file in files if file.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+
+    return len(image_files)
+
+
+def process_folders_and_write_to_excel(root_folder, excel_file):
+    # 创建一个新的Excel工作簿
+    wb = Workbook()
+    ws = wb.active
+
+    # 遍历根文件夹下的所有子文件夹
+    for folder_name in os.listdir(root_folder):
+        folder_path = os.path.join(root_folder, folder_name)
+
+        # 确保是目录而不是文件
+        if os.path.isdir(folder_path):
+            # 获取图片数量
+            image_count = count_images_in_folder(folder_path)
+
+            # 写入Excel表格的第一列和第二列
+            ws.append([folder_name, image_count])
+
+    # 保存Excel文件
+    wb.save(excel_file)
+
+
+# 设置根文件夹和目标Excel文件名
+root_folder_path = r'H:\TFDS故障库\2024广州故障库\5月\广州北'  # 替换为你的根文件夹路径
+excel_file_name = r'H:\TFDS故障库\2024广州故障库\5月\广州北\5.xlsx'
+
+# 处理文件夹并写入Excel
+process_folders_and_write_to_excel(root_folder_path, excel_file_name)
