@@ -1,2 +1,29 @@
 import os
 import xml.etree.ElementTree as ET
+
+A_dir=''
+img_dir=''
+
+def delete_files_with_empty_annotations(annotations_dir, images_dir):
+    for filename in os.listdir(annotations_dir):
+        if not filename.endswith('.xml'):
+            continue
+
+        xml_path = os.path.join(annotations_dir, filename)
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+
+        # 检查是否存在 object 标签
+        if not root.findall('object'):
+            # 没有 object 标签，删除对应的图像文件和 XML 文件
+            image_filename = root.find('filename').text
+            image_path = os.path.join(images_dir, image_filename)
+
+            if os.path.exists(image_path):
+                os.remove(image_path)
+                print(f'Deleted image file: {image_path}')
+            os.remove(xml_path)
+            print(f'Deleted annotation file: {xml_path}')
+
+# 调用函数
+delete_files_with_empty_annotations(annotations_dir, images_dir)
