@@ -1,0 +1,265 @@
+from ultralytics import YOLO
+import os
+import shutil
+import threading
+import cv2
+
+is_split_classes = 0
+class detect_info:
+    def __init__(self, model_path, classes, image_path, save_path, is_split_classes):
+        self.model_path = model_path
+        self.classes = classes
+        self.image_path = image_path
+        self.is_split_classes = False
+        self.save_path = save_path
+        self.model_name = os.path.basename(model_path).split('.')[0]
+
+def create_file(root_path, file_name):
+    file_path = os.path.join(root_path, file_name)
+    if not os.path.exists(file_path):
+        os.mkdir(file_path)
+    return file_path
+
+
+def yolo_crop_images(image_dir, label_path, save_path):
+
+    image_path = [image for image in os.listdir(image_dir) if image.endswith('.jpg')]
+    image = cv2.imread(os.path.join(image_dir, image_path[0]))
+
+    h, w, c = image.shape
+    txt_path = os.listdir(label_path)
+    for txt in txt_path:
+        with open(os.path.join(label_path, txt), "r", encoding="utf-8") as file:
+
+            lines = file.readlines()
+            numbers = []
+            for line in lines:
+                line_numbers = line.strip().split()
+                # 将每行的内容转换为浮点数，并添加到数组
+                line_data = [float(item) for item in line_numbers]
+                numbers.append(line_data)
+
+            for i in range(len(numbers)):
+
+                x_center = w * float(numbers[i][1])  # x中心坐标
+                y_center = h * float(numbers[i][2])  # y中心坐标
+                width = int(w * float(numbers[i][3]))  # aa[3]图片width
+                height = int(h * float(numbers[i][4]))
+
+                x_left_top = int(x_center - width / 2)
+                y_left_top = int(y_center - height / 2)
+
+                x_right_bottom = int(x_center + width / 2)
+                y_right_bottom = int(y_center + height / 2)
+
+                # print(f'{i=}, {x_center=}, {y_center=}, {width=}, {height=}, {x_left_top=}')
+                img = cv2.imread(os.path.join(image_dir, txt[:-4] + '.jpg'))
+                roi = img[y_left_top:y_right_bottom, x_left_top:x_right_bottom]
+                # print(os.path.join(save_dir, txt[:-4] + '_' + dict_alph[i] + '.jpg'))
+
+                cv2.imwrite(os.path.join(save_path, f"{txt[:-4]}_{str(int(numbers[i][0]))}_({i}).jpg"), roi)
+            # x1 = int(numbers[1])
+            # y1 = int(numbers[2])
+            # x2 = int(numbers[3])
+            # y2 = int(numbers[4])
+
+            # img = cv2.imread(os.path.join(image_dir, txt[:-4] + '.jpg'))
+            # roi = img[y1:y2, x1:x2]
+            #
+            #
+            # cv2.imwrite(os.path.join(save_dir,  txt[:-4] + '.jpg'), roi)
+
+
+def calculate_coordinates(image, crop_image, ori_image_labels, crop_image_labels):
+    # labels x, y, w, h, conf
+    image_shape = image.shape[:2]
+    ori_x, ori_y = [float(label) * shape for label, shape in zip(ori_image_labels[1:3], image_shape[::-1])]
+    ori_w, ori_h = [int(float(label) * shape) for label, shape in zip(ori_image_labels[3:5], image_shape[::-1])]
+
+    crop_shape = crop_image.shape[:2]
+
+    crop_x, crop_y = [float(label) * shape for label, shape in zip(crop_image_labels[1:3], crop_shape[::-1])]
+    crop_w, crop_h = [int(float(label) * shape) for label, shape in zip(crop_image_labels[3:5], crop_shape[::-1])]
+
+    new_x = ori_x - ori_w / 2 + crop_x
+    new_y = ori_y - ori_h / 2 + crop_y
+
+    #crop_classes, x, y, w, h, conf
+    ori_image_bbox = [crop_image_labels[0], new_x, new_y, crop_w, crop_h, round(crop_image_labels[5], 2)]
+    # ori_image_bbox = [crop_image_labels[0], 500, 207, 251, 110, round(crop_image_labels[5], 2)]
+
+    return ori_image_bbox
+
+def draw_rectangle(ori_image, bbox, crop_classes):
+
+    # 原图画框
+    image = ori_image.copy()
+    x1, y1, x2, y2 = map(int, (bbox[1] - bbox[3] / 2, bbox[2] - bbox[4] / 2, bbox[1] + bbox[3] / 2, bbox[2] + bbox[4] / 2))
+    thickness = 4
+    color = [0, 0, 255]
+    cv2.rectangle(image, (x1, y1), (x2, y2), color, thickness)
+
+    # 类别置信度
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    conf = str(bbox[-1])
+    class_name = str(crop_classes[int(bbox[0])])
+    text = f"{class_name}  {conf}"
+    font_scale = 1
+    font_thickness = 2
+    text_size = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+    text_position = (x1 + (x2 - x1 - text_size[0]) // 2, y1 - 5)
+    txt_color = [0, 180, 190]
+    cv2.putText(image, text, text_position, font, font_scale, txt_color, font_thickness)
+
+    return image, class_name
+
+
+def draw_ori_image(ori_image_path, crop_image_path, ori_image_labels_path, crop_image_labels_path, classes, model_name):
+
+    ori_image_files = [image for image in os.listdir(ori_image_path) if image.endswith('.jpg')]
+    crop_image_files = [image for image in  os.listdir(crop_image_path) if image.endswith('.jpg')]
+    ori_label_files = [image for image in os.listdir(ori_image_labels_path) if image.endswith('.txt')]
+    crop_label_files = [image for image in os.listdir(crop_image_labels_path) if image.endswith('.txt')]
+
+    save_split_path = create_file(ori_image_path, 'split_' + model_name)
+
+    for idx, crop_label in enumerate(crop_label_files):
+
+        crop_label_path = os.path.join(crop_image_labels_path, crop_label)
+        ori_label_path = os.path.join(ori_image_labels_path, crop_label[:-10] + '.txt')
+        crop_image = cv2.imread(os.path.join(crop_image_path, crop_label[:-4] + '.jpg'))
+        ori_image = cv2.imread(os.path.join(ori_image_path, crop_label[:-10] + '.jpg'))
+
+
+        if idx == 0 or crop_label[:-10] != crop_label_files[idx - 1][:-10]:
+            copy_image = ori_image.copy()
+        crop_num = int(crop_label[-6])
+
+        ori_label_data_array = []
+        with open(ori_label_path, 'r', encoding='utf-8') as file:
+            for line in file:
+                # 移除换行符并按空格分割每行内容
+                line_data = line.strip().split()
+                # 将每行的内容转换为浮点数，并添加到数组
+                line_data = [float(item) for item in line_data]
+                ori_label_data_array.append(line_data)
+
+        with open(crop_label_path, 'r', encoding='utf-8') as f1:
+            numbers = []
+            for line in f1:
+                # 移除换行符并按空格分割每行内容
+                crop_data = line.strip().split()
+                # 将每行的内容转换为浮点数，并添加到数组
+                crop_data = [float(item) for item in crop_data]
+                numbers.append(crop_data)
+
+            for i in range(len(numbers)):
+                new_bbox = calculate_coordinates(ori_image, crop_image, ori_label_data_array[crop_num], numbers[i])
+                copy_image, classes_name = draw_rectangle(copy_image, new_bbox, classes)
+
+                split_class_path = create_file(save_split_path, classes_name)
+                cv2.imwrite(os.path.join(split_class_path, crop_label[:-10] + '.jpg'), copy_image)
+
+    original_image = [image for image in os.listdir(ori_image_path) if image.endswith('.jpg')]
+    block_xml = [xml[:-10] for xml in os.listdir(crop_image_labels_path)]
+    print(block_xml)
+
+    save_unblock_path = create_file(save_split_path, 'unblock')
+
+    for image in original_image:
+        if image[:-4] not in block_xml:
+            copy_unblock_image_path = os.path.join(ori_image_path, image)
+            dis_copy_unblock_path = os.path.join(save_unblock_path, image)
+            shutil.copy(copy_unblock_image_path, dis_copy_unblock_path)
+            print(image[:-4])
+
+
+#二阶段检测
+def sbs_detect(first_detect_info, second_detect_info):
+
+    step1_model_path = first_detect_info.model_path
+    step1_image_path = first_detect_info.image_path
+
+    step2_model_path = second_detect_info.model_path
+    step2_image_path = second_detect_info.image_path
+
+    save_file_name = step1_model_path.split('\\')[-1][:-3] + '+' + step1_image_path.split('\\')[-1]
+
+    step1_model = YOLO(step1_model_path)
+    step1_name = step1_model.predict(source=step1_image_path,
+                         save=True,
+                         save_conf=True,
+                         save_txt=True,
+                         device=0,
+                         name=save_file_name,
+                         conf=0.4)
+
+    step1_save_dirs = step1_name[0].save_dir
+
+    step1_script_directory = os.path.dirname(os.path.abspath(__file__))
+    step1_block_image_path = os.path.join(step1_script_directory, step1_save_dirs)
+    step1_label_path = os.path.join(step1_block_image_path, 'labels')
+
+    crop_image_path = create_file(step1_image_path, 'crop_images')
+    yolo_crop_images(step1_image_path, step1_label_path, crop_image_path)
+
+    step1_model = YOLO(step2_model_path)
+    step2_name = step1_model.predict(source=crop_image_path,
+                         save=True,
+                         save_conf=True,
+                         save_txt=True,
+                         device=0,
+                         name=save_file_name,
+                         conf=0.65)
+
+    step2_save_dirs = step2_name[0].save_dir
+
+    step2_script_directory = os.path.dirname(os.path.abspath(__file__))
+    step2_block_image_path = os.path.join(step2_script_directory, step2_save_dirs)
+    step2_label_path = os.path.join(step2_block_image_path, 'labels')
+
+    draw_ori_image(step1_image_path, crop_image_path, step1_label_path, step2_label_path, second_detect_info.classes, second_detect_info.model_name)
+
+
+# classes = ['158', '165', '172', '352']
+# classes = ['158', '165', '172', '352', '165_r', '172_r', '352_r']
+# classes = ['328_1', '328_2', '328_3']
+
+
+# classes = ['1', '2', '3', '4', '5', '6', '7']
+# model_path1 = r"E:\WWX\Model\cggh_test.pt"
+# model_path2 = r"E:\WWX\Model\172_0319\weights\best.pt"
+
+
+# classes = ['103']
+# model_path1 = r'E:\WWX\Model\hc_zcb_103_step1_wwx_0111.pt'
+# model_path2 = r'E:\WWX\Model\hc_zcb_103_step2_v8m_wwx0205.pt'
+
+# classes = ['140', '140_328', '158', '158_328', '160', '326_1', '326_2', '326_328', '344_1', '344_328', '344_s']
+# model_path1 = r'E:\WWX\Model\hc_zcb_usual(5type)_step1_wwx_0108.pt'
+# model_path2 = r'E:\WWX\Model\hc_zcb_usual(5type)_step2_v8s_wwx_0205.pt'
+
+classes = ['172_1', '172_2', '172_r']
+model_path1 = r'F:\HC_V8\models\Model\hc_all_172_step1_wwx_v8s_0422.pt'
+model_path2 = r"F:\HC_V8\models\Model\hc_all_172_step2_wwx_v8s_0422.pt"
+
+# classes = ['311', '311_1', '311_z', '312']
+# model_path1 = r'F:\HC_V8\models\Model\hc_cejia_two_stages_240123.pt'
+# model_path2 = r"F:\HC_V8\models\Model\hc_cj_2type_step2_wwx_v8s_0327.pt"
+
+# classes = ['308']
+# model_path1 = r'F:\HC_V8\models\Model\hc_cejia_two_stages_240123.pt'
+# model_path2 = r"F:\HC_V8\models\Model\hc_cj_308_step2_wwx_v8s_0326.pt"
+
+image_path1 = r"C:\Users\Administrator\Desktop\t"
+
+save_root_path = r'E:\WWX\fault\cejia_two_stages\step2\datasets0315\datasets_cj3_0315\0\im'
+
+step1_info = detect_info(model_path1, 0, image_path1, save_root_path, is_split_classes=False)
+step2_info = detect_info(model_path2, classes, image_path1, save_root_path, is_split_classes=True)
+sbs_detect(step1_info, step2_info)
+
+
+
+
+
