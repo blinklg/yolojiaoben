@@ -1,0 +1,114 @@
+import os
+import cv2
+import numpy as np
+from ultralytics import YOLO
+import socket
+import yaml
+
+# 加载配置文件
+with open(r'E:\ultralytics-main\rec_person\config.yaml', 'r', encoding='utf-8') as file:
+    config = yaml.safe_load(file)
+
+# 加载YOLOv8模型并指定使用GPU
+model = YOLO(r'E:\ultralytics-main\rec_person\yolov8s.pt')
+
+
+def process_frame(frame):
+    person_detected = False  # 初始化标志
+
+    # 定义四个点的坐标（ROI区域）
+
+    pts_src = np.array([config['point']['x1'], config['point']['x4'], config['point']['x3'], config['point']['x2']],
+                       np.float32)
+    # 透射变换目标矩形的大小
+    width, height = 1024, 768
+    pts_dst = np.array([[0, 0], [width, 0], [width, height], [0, height]], np.float32)
+
+    # 计算透视变换矩阵
+    M = cv2.getPerspectiveTransform(pts_src, pts_dst)
+
+    # 应用透视变换将ROI区域转换为矩形
+    roi_frame = cv2.warpPerspective(frame, M, (width, height))
+
+    # 通过YOLOv8进行检测
+    results = model(roi_frame)
+
+    # 遍历检测结果并过滤出行人
+    for r in results:
+        for box in r.boxes:
+            if box.cls == 0:  # 仅检测行人（class 0 通常是'person'）
+                person_detected = True  # 检测到行人
+                x1, y1, x2, y2 = box.xyxy[0].int().tolist()
+                cv2.rectangle(roi_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(roi_frame, 'Person', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+    # 将检测结果映射回原图
+    inverse_M = cv2.getPerspectiveTransform(pts_dst, pts_src)
+    final_frame = cv2.warpPerspective(roi_frame, inverse_M, (frame.shape[1], frame.shape[0]), dst=frame,
+                                      borderMode=cv2.BORDER_TRANSPARENT)
+
+    # 在最终显示的图像上绘制原始四边形区域
+    cv2.polylines(final_frame, [pts_src.astype(int)], isClosed=True, color=(255, 255, 255), thickness=2)
+    return final_frame, person_detected
+
+
+def send_socket_data(socket_client, person_detected, last_person_detected):
+    """
+    通过socket发送检测结果，仅在状态变化时发送。
+    """
+    try:
+        if last_person_detected is None or person_detected != last_person_detected:
+            data = f"{'True;' if person_detected else 'False'}"
+            socket_client.send(data.encode('utf-8'))
+            print(f"Sent data: {data}")
+            last_person_detected = person_detected
+    except Exception as e:
+        print(f"Error sending data via socket: {e}")
+
+    return last_person_detected
+
+
+def main():
+    last_person_detected = None  # 初始化最后检测到的状态
+    # 设置socket客户端
+    socket_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    socket_client.connect((config['socket']['host'], config['socket']['port']))  # 替换为你的服务器IP和端口
+    # 读取图像目录
+    image_dir = config['image']['image_dir']  # 替换为你的图像目录路径
+    processed_dir = config['image']['processed_dir']  # 保存处理后图像的目录路径
+    # 创建保存处理后图像的目录（如果不存在）
+    os.makedirs(processed_dir, exist_ok=True)
+
+    # 遍历目录中的所有图像文件
+    for image_name in os.listdir(image_dir):
+        image_path = os.path.join(image_dir, image_name)
+        print(f"Loading image from {image_path}")
+        frame = cv2.imread(image_path)
+
+        # 检查图像是否加载成功
+        if frame is None:
+            print(f"无法加载图像：{image_path}")
+            continue
+
+        # 处理图像
+        processed_frame, person_detected = process_frame(frame)
+
+        # 使用 socket 函数发送数据
+        last_person_detected = send_socket_data(socket_client, person_detected, last_person_detected)
+
+        # 保存处理后的图像
+        processed_image_path = os.path.join(processed_dir, image_name)  # 保存路径
+        cv2.imwrite(processed_image_path, processed_frame)  # 保存为新文件
+
+        print(f"Processed and saved: {processed_image_path}")
+
+    # 释放资源
+    socket_client.close()
+    cv2.destroyAllWindows()
+
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
